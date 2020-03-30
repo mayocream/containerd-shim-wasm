@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -43,6 +42,8 @@ type process struct {
 	remaps []string
 	env    []string
 	args   []string
+
+	isSandbox bool
 
 	waitError error
 }
@@ -108,17 +109,23 @@ func (p *process) Resize(ws console.WinSize) error {
 
 func (p *process) Start(ctx context.Context) (err error) {
 	var args []string
-	/*for _, rm := range p.remaps {
-		args = append(args, "--mapdir="+rm)
-	}
-	for _, env := range p.env {
-		args = append(args, "--env="+env)
-	}*/
+	/*
+		TODO: deal with envs and args
+		for _, rm := range p.remaps {
+			args = append(args, "--mapdir="+rm)
+		}
+		for _, env := range p.env {
+			args = append(args, "--env="+env)
+		}
+	*/
 	args = append(args, p.args...)
-
-	cmd := exec.Command("wasmtime", args...)
-	if strings.HasSuffix(args[0], "pause") {
+	cmd := exec.Command("wasmtime", p.args...)
+	// If this is a sandbox, run a normal process
+	if p.isSandbox {
 		cmd = exec.Command(args[0])
+		if len(args) > 1 {
+			cmd = exec.Command(args[0], args[1:]...)
+		}
 	}
 
 	var in io.Closer

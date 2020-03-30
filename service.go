@@ -242,7 +242,7 @@ func (s *service) Cleanup(ctx context.Context) (*taskAPI.DeleteResponse, error) 
 	}, nil
 }
 
-// Create a new initial process and container with the underlying OCI runtime
+// Create a new initial process and container with wasmtime
 func (s *service) Create(ctx context.Context, r *taskAPI.CreateTaskRequest) (_ *taskAPI.CreateTaskResponse, err error) {
 	s.log.Info("wasm Create")
 	s.mu.Lock()

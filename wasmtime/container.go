@@ -34,6 +34,7 @@ import (
 	proc "github.com/containerd/containerd/pkg/process"
 	"github.com/containerd/containerd/pkg/stdio"
 	"github.com/containerd/containerd/runtime/v2/task"
+	"github.com/containerd/cri/pkg/annotations"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -147,10 +148,11 @@ func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTa
 		remaps: []string{
 			rootRemap,
 		},
-		exited: make(chan struct{}),
-		ec:     ec,
-		env:    spec.Process.Env,
-		args:   spec.Process.Args,
+		exited:    make(chan struct{}),
+		ec:        ec,
+		env:       spec.Process.Env,
+		args:      spec.Process.Args,
+		isSandbox: IsSandbox(&spec),
 	}
 
 	container := &Container{
@@ -383,4 +385,10 @@ func (c *Container) HasPid(pid int) bool {
 		}
 	}
 	return false
+}
+
+// IsSandbox checks whether a container is a sandbox container.
+func IsSandbox(spec *specs.Spec) bool {
+	t, ok := spec.Annotations[annotations.ContainerType]
+	return !ok || t == annotations.ContainerTypeSandbox
 }
