@@ -7,6 +7,7 @@ require (
 	github.com/containerd/cgroups v0.0.0-20190919134610-bf292b21730f
 	github.com/containerd/console v0.0.0-20181022165439-0650fd9eeb50
 	github.com/containerd/containerd v1.3.0-beta.2.0.20190828155532-0293cbd26c69
+	github.com/containerd/cri v1.11.1
 	github.com/containerd/fifo v0.0.0-20190226154929-a9fb20d87448
 	github.com/containerd/typeurl v1.0.0
 	github.com/gogo/googleapis v1.2.0 // indirect

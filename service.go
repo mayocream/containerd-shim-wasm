@@ -209,7 +209,7 @@ func (s *service) StartShim(ctx context.Context, id, containerdBinary, container
 func (s *service) Cleanup(ctx context.Context) (*taskAPI.DeleteResponse, error) {
 	s.log.Info("wasm Cleanup")
 
-	pid, err := wasmtime.ReadPid(ctx)
+	pid, err := wasmtime.ReadPid(ctx, s.id)
 	if err != nil {
 		return nil, err
 	}
@@ -222,6 +222,12 @@ func (s *service) Cleanup(ctx context.Context) (*taskAPI.DeleteResponse, error) 
 	// TODO: can this be more graceful?
 	err = p.Kill()
 	if err != nil && err.Error() != "os: process already finished" {
+		return nil, err
+	}
+
+	// Remove state directory
+	err = wasmtime.Cleanup(ctx, s.id)
+	if err != nil {
 		return nil, err
 	}
 

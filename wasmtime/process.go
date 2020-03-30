@@ -252,14 +252,9 @@ func (p *process) writePid(ctx context.Context) error {
 	if err != nil {
 		return errors.Wrap(err, "create namespace")
 	}
+	stateRoot := filepath.Join(wasmtimeRoot, ns, p.id)
 
-	// Create state directory
-	stateRoot := filepath.Join(wasmtimeRoot, ns)
-	if err := os.MkdirAll(stateRoot, 0700); err != nil {
-		return err
-	}
-
-	err = ioutil.WriteFile(filepath.Join(stateRoot, initPidFile), []byte(string(p.Pid())), 0600)
+	err = ioutil.WriteFile(filepath.Join(stateRoot, initPidFile), []byte(strconv.Itoa(p.Pid())), 0600)
 	if err != nil {
 		return err
 	}
@@ -267,13 +262,13 @@ func (p *process) writePid(ctx context.Context) error {
 }
 
 // ReadPid return the PID of the container process from disk
-func ReadPid(ctx context.Context) (int, error) {
+func ReadPid(ctx context.Context, id string) (int, error) {
 	ns, err := namespaces.NamespaceRequired(ctx)
 	if err != nil {
 		return 0, err
 	}
 
-	bytes, err := ioutil.ReadFile(filepath.Join(wasmtimeRoot, ns, initPidFile))
+	bytes, err := ioutil.ReadFile(filepath.Join(wasmtimeRoot, ns, id, initPidFile))
 	if err != nil {
 		return 0, err
 	}
@@ -284,4 +279,18 @@ func ReadPid(ctx context.Context) (int, error) {
 	}
 
 	return pid, nil
+}
+
+func Cleanup(ctx context.Context, id string) error {
+	ns, err := namespaces.NamespaceRequired(ctx)
+	if err != nil {
+		return err
+	}
+	stateRoot := filepath.Join(wasmtimeRoot, ns, id)
+
+	err = os.RemoveAll(stateRoot)
+	if err != nil {
+		return err
+	}
+	return nil
 }

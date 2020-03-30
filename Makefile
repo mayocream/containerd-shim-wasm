@@ -12,7 +12,7 @@ reload: containerd-shim-wasm-v1
 
 apply:
 	kubectl apply -f config/runtime-class.yaml
-	kubectl apply -f config/job.yaml
+	kubectl apply -f config/deployment.yaml
 
 create:
 	kind create cluster --name $(CLUSTER_NAME) --config config/kind.yaml

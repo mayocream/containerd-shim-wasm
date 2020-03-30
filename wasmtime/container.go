@@ -31,6 +31,7 @@ import (
 	"github.com/containerd/console"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/mount"
+	"github.com/containerd/containerd/namespaces"
 	proc "github.com/containerd/containerd/pkg/process"
 	"github.com/containerd/containerd/pkg/stdio"
 	"github.com/containerd/containerd/runtime/v2/task"
@@ -62,6 +63,18 @@ type Exit struct {
 
 // NewContainer returns a new runc container
 func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTaskRequest, ec chan<- Exit) (c *Container, err error) {
+
+	ns, err := namespaces.NamespaceRequired(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "create namespace")
+	}
+
+	// Create state directory
+	stateRoot := filepath.Join(wasmtimeRoot, ns, r.ID)
+	if err := os.MkdirAll(stateRoot, 0700); err != nil {
+		return nil, err
+	}
+
 	//var opts options.Options
 	//if r.Options != nil {
 	//	v, err := typeurl.UnmarshalAny(r.Options)

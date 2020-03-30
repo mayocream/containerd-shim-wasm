@@ -1,12 +1,17 @@
-apiVersion: batch/v1
-kind: Job
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: test
+  name: wasm
 spec:
+  selector:
+    matchLabels:
+      app: wasm
   template:
+    metadata:
+      labels:
+        app: wasm
     spec:
       runtimeClassName: wasm
-      restartPolicy: OnFailure
       containers:
       - name: test
         image: dippynark/hello-wasm:v0.1.0
