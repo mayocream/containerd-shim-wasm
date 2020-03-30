@@ -1,0 +1,13 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test
+spec:
+  template:
+    spec:
+      runtimeClassName: wasm
+      restartPolicy: OnFailure
+      containers:
+      - name: test
+        image: dippynark/hello-wasm:v0.1.0
+        imagePullPolicy: Always

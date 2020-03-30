@@ -33,7 +33,7 @@ import (
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/namespaces"
-	rproc "github.com/containerd/containerd/runtime/proc"
+	"github.com/containerd/containerd/pkg/stdio"
 	"github.com/containerd/containerd/runtime/v2/runc/options"
 	"github.com/containerd/containerd/runtime/v2/shim"
 	taskAPI "github.com/containerd/containerd/runtime/v2/task"
@@ -94,7 +94,7 @@ type service struct {
 
 	context  context.Context
 	events   chan interface{}
-	platform rproc.Platform
+	platform stdio.Platform
 	ec       chan wasmtime.Exit
 	ep       *wasmtime.Epoller
 
@@ -146,7 +146,7 @@ func readSpec() (*spec, error) {
 	return &s, nil
 }
 
-func (s *service) StartShim(ctx context.Context, id, containerdBinary, containerdAddress string) (string, error) {
+func (s *service) StartShim(ctx context.Context, id, containerdBinary, containerdAddress, containerdTTRPCAddress string) (_ string, retErr error) {
 	cmd, err := newCommand(ctx, id, containerdBinary, containerdAddress)
 	if err != nil {
 		return "", err
@@ -189,7 +189,7 @@ func (s *service) StartShim(ctx context.Context, id, containerdBinary, container
 		return "", err
 	}
 	defer func() {
-		if err != nil {
+		if retErr != nil {
 			cmd.Process.Kill()
 		}
 	}()

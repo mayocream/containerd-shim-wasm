@@ -22,20 +22,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
-	"syscall"
-	"time"
 
 	"github.com/containerd/cgroups"
 	"github.com/containerd/console"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/mount"
-	rproc "github.com/containerd/containerd/runtime/proc"
+	proc "github.com/containerd/containerd/pkg/process"
+	"github.com/containerd/containerd/pkg/stdio"
 	"github.com/containerd/containerd/runtime/v2/task"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
@@ -48,7 +45,7 @@ type Exit struct {
 }
 
 // NewContainer returns a new runc container
-func NewContainer(ctx context.Context, platform rproc.Platform, r *task.CreateTaskRequest, ec chan<- Exit) (c *Container, err error) {
+func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTaskRequest, ec chan<- Exit) (c *Container, err error) {
 	//ns, err := namespaces.NamespaceRequired(ctx)
 	//if err != nil {
 	//	return nil, errors.Wrap(err, "create namespace")
@@ -131,7 +128,7 @@ func NewContainer(ctx context.Context, platform rproc.Platform, r *task.CreateTa
 
 	p := &process{
 		id: r.ID,
-		stdio: rproc.Stdio{
+		stdio: stdio.Stdio{
 			Stdin:    r.Stdin,
 			Stdout:   r.Stdout,
 			Stderr:   r.Stderr,
@@ -150,7 +147,7 @@ func NewContainer(ctx context.Context, platform rproc.Platform, r *task.CreateTa
 		ID:        r.ID,
 		Bundle:    r.Bundle,
 		process:   p,
-		processes: make(map[string]rproc.Process),
+		processes: make(map[string]proc.Process),
 	}
 
 	pid := p.Pid()
@@ -193,12 +190,12 @@ type Container struct {
 
 	ec        chan<- Exit
 	cgroup    cgroups.Cgroup
-	process   rproc.Process
-	processes map[string]rproc.Process
+	process   proc.Process
+	processes map[string]proc.Process
 }
 
 // All processes in the container
-func (c *Container) All() (o []rproc.Process) {
+func (c *Container) All() (o []proc.Process) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -212,7 +209,7 @@ func (c *Container) All() (o []rproc.Process) {
 }
 
 // ExecdProcesses added to the container
-func (c *Container) ExecdProcesses() (o []rproc.Process) {
+func (c *Container) ExecdProcesses() (o []proc.Process) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for _, p := range c.processes {
@@ -243,7 +240,7 @@ func (c *Container) CgroupSet(cg cgroups.Cgroup) {
 }
 
 // Process returns the process by id
-func (c *Container) Process(id string) (rproc.Process, error) {
+func (c *Container) Process(id string) (proc.Process, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if id == "" {
@@ -268,7 +265,7 @@ func (c *Container) ProcessExists(id string) bool {
 }
 
 // ProcessAdd adds a new process to the container
-func (c *Container) ProcessAdd(process rproc.Process) {
+func (c *Container) ProcessAdd(process proc.Process) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.processes[process.ID()] = process
@@ -282,7 +279,7 @@ func (c *Container) ProcessRemove(id string) {
 }
 
 // Start a container process
-func (c *Container) Start(ctx context.Context, r *task.StartRequest) (rproc.Process, error) {
+func (c *Container) Start(ctx context.Context, r *task.StartRequest) (proc.Process, error) {
 	logrus.Info("starting")
 	p, err := c.Process(r.ExecID)
 	if err != nil {
@@ -306,7 +303,7 @@ func (c *Container) Start(ctx context.Context, r *task.StartRequest) (rproc.Proc
 }
 
 // Delete the container or a process by id
-func (c *Container) Delete(ctx context.Context, r *task.DeleteRequest) (rproc.Process, error) {
+func (c *Container) Delete(ctx context.Context, r *task.DeleteRequest) (proc.Process, error) {
 	p, err := c.Process(r.ExecID)
 	if err != nil {
 		return nil, err
@@ -321,7 +318,7 @@ func (c *Container) Delete(ctx context.Context, r *task.DeleteRequest) (rproc.Pr
 }
 
 // Exec an additional process
-func (c *Container) Exec(ctx context.Context, r *task.ExecProcessRequest) (rproc.Process, error) {
+func (c *Container) Exec(ctx context.Context, r *task.ExecProcessRequest) (proc.Process, error) {
 	return nil, errors.Wrap(errdefs.ErrNotImplemented, "exec not implemented")
 }
 
@@ -392,196 +389,4 @@ func (c *Container) HasPid(pid int) bool {
 		}
 	}
 	return false
-}
-
-type process struct {
-	mu sync.Mutex
-
-	id         string
-	pid        int
-	exitStatus int
-	exitTime   time.Time
-	stdio      rproc.Stdio
-	stdin      io.Closer
-	process    *os.Process
-	exited     chan struct{}
-	ec         chan<- Exit
-
-	remaps []string
-	env    []string
-	args   []string
-
-	waitError error
-}
-
-func (p *process) ID() string {
-	return p.id
-}
-
-func (p *process) Pid() int {
-	return p.pid
-}
-
-func (p *process) ExitStatus() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.exitStatus
-}
-
-func (p *process) ExitedAt() time.Time {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.exitTime
-}
-
-func (p *process) Stdin() io.Closer {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.stdin
-}
-
-func (p *process) Stdio() rproc.Stdio {
-	return p.stdio
-}
-
-func (p *process) Status(context.Context) (string, error) {
-	select {
-	case <-p.exited:
-	default:
-		p.mu.Lock()
-		running := p.process != nil
-		p.mu.Unlock()
-		if running {
-			return "running", nil
-		}
-		return "created", nil
-	}
-
-	return "stopped", nil
-}
-
-func (p *process) Wait() {
-	<-p.exited
-}
-
-func (p *process) Resize(ws console.WinSize) error {
-	return nil
-}
-
-func (p *process) Start(context.Context) (err error) {
-	var args []string
-	for _, rm := range p.remaps {
-		args = append(args, "--mapdir="+rm)
-	}
-	for _, env := range p.env {
-		args = append(args, "--env="+env)
-	}
-	args = append(args, p.args...)
-	cmd := exec.Command("wasmtime", args...)
-
-	var in io.Closer
-	var closers []io.Closer
-	if p.stdio.Stdin != "" {
-		stdin, err := os.OpenFile(p.stdio.Stdin, os.O_RDONLY, 0)
-		if err != nil {
-			return errors.Wrapf(err, "unable to open stdin: %s", p.stdio.Stdin)
-		}
-		defer func() {
-			if err != nil {
-				stdin.Close()
-			}
-		}()
-		cmd.Stdin = stdin
-		in = stdin
-		closers = append(closers, stdin)
-	}
-
-	if p.stdio.Stdout != "" {
-		stdout, err := os.OpenFile(p.stdio.Stdout, os.O_WRONLY, 0)
-		if err != nil {
-			return errors.Wrapf(err, "unable to open stdout: %s", p.stdio.Stdout)
-		}
-		defer func() {
-			if err != nil {
-				stdout.Close()
-			}
-		}()
-		cmd.Stdout = stdout
-		closers = append(closers, stdout)
-	}
-
-	if p.stdio.Stderr != "" {
-		stderr, err := os.OpenFile(p.stdio.Stderr, os.O_WRONLY, 0)
-		if err != nil {
-			return errors.Wrapf(err, "unable to open stderr: %s", p.stdio.Stderr)
-		}
-		defer func() {
-			if err != nil {
-				stderr.Close()
-			}
-		}()
-		cmd.Stderr = stderr
-		closers = append(closers, stderr)
-	}
-
-	p.mu.Lock()
-	if p.process != nil {
-		return errors.Wrap(errdefs.ErrFailedPrecondition, "already running")
-	}
-	if err := cmd.Start(); err != nil {
-		p.mu.Unlock()
-		return err
-	}
-	p.process = cmd.Process
-	p.stdin = in
-	p.mu.Unlock()
-
-	go func() {
-		waitStatus, err := p.process.Wait()
-		p.mu.Lock()
-		p.exitTime = time.Now()
-		if err != nil {
-			p.exitStatus = -1
-			logrus.WithError(err).Errorf("wait returned error")
-		} else if waitStatus != nil {
-			// TODO: Make this cross platform
-			p.exitStatus = int(waitStatus.Sys().(syscall.WaitStatus))
-		}
-		p.mu.Unlock()
-
-		close(p.exited)
-
-		p.ec <- Exit{
-			Pid:    p.pid,
-			Status: p.exitStatus,
-		}
-
-		for _, c := range closers {
-			c.Close()
-		}
-	}()
-
-	return nil
-}
-
-func (p *process) Delete(context.Context) error {
-	return nil
-}
-
-func (p *process) Kill(context.Context, uint32, bool) error {
-	p.mu.Lock()
-	running := p.process != nil
-	p.mu.Unlock()
-
-	if !running {
-		return errors.New("not started")
-	}
-
-	return p.process.Kill()
-}
-
-func (p *process) SetExited(status int) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.exitStatus = status
 }

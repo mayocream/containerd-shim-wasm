@@ -1,0 +1,11 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  extraMounts:
+  - hostPath: config/containerd.toml
+    containerPath: /etc/containerd/config.toml
+  - hostPath: bin/containerd-shim-wasm-v1
+    containerPath: /usr/local/bin/containerd-shim-wasm-v1
+  - hostPath: bin/wasmtime
+    containerPath: /usr/local/bin/wasmtime
