@@ -7,7 +7,8 @@ WASMTIME_VERSION=0.60.0
 export DOCKER_BUILDKIT = 1
 #export KUBECONFIG = $(CURDIR)/kubeconfig
 
-reload: docker_containerd-shim-wasm-v1 delete create apply
+reload: containerd-shim-wasm-v1
+	kubectl delete pod --all --grace-period=0 --force
 
 apply:
 	kubectl apply -f config/runtime-class.yaml
@@ -74,16 +75,12 @@ docker_image:
 docker_shell: docker_image
 	@docker run -it \
 		-v /var/run/docker.sock:/var/run/docker.sock \
-		-v $(CURDIR)/cache/go-build:/root/.cache/go-build \
-		-v $(CURDIR)/cache/go-home:/root/go \
 		-v $(CURDIR):/workspace \
 		$(BUILD_IMAGE)
 
 docker_%: docker_image
 	@docker run -it \
 		-v /var/run/docker.sock:/var/run/docker.sock \
-		-v $(CURDIR)/cache/go-build:/root/.cache/go-build \
-		-v $(CURDIR)/cache/go-home:/root/go \
 		-v $(CURDIR):/workspace \
 		$(BUILD_IMAGE) \
 		make $*

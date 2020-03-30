@@ -31,10 +31,10 @@ import (
 	eventstypes "github.com/containerd/containerd/api/events"
 	"github.com/containerd/containerd/api/types/task"
 	"github.com/containerd/containerd/errdefs"
+	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/pkg/stdio"
-	"github.com/containerd/containerd/runtime/v2/runc/options"
 	"github.com/containerd/containerd/runtime/v2/shim"
 	taskAPI "github.com/containerd/containerd/runtime/v2/task"
 	"github.com/containerd/typeurl"
@@ -77,6 +77,7 @@ func New(ctx context.Context, id string, publisher shim.Publisher, shutdown func
 		ep:         ep,
 		cancel:     shutdown,
 		containers: make(map[string]*wasmtime.Container),
+		log:        log.GetLogger(context.TODO()),
 	}
 	go s.processExits()
 	if err := s.initPlatform(); err != nil {
@@ -97,6 +98,7 @@ type service struct {
 	platform stdio.Platform
 	ec       chan wasmtime.Exit
 	ep       *wasmtime.Epoller
+	log      *logrus.Entry
 
 	// id only used in cleanup case
 	id string
@@ -205,31 +207,35 @@ func (s *service) StartShim(ctx context.Context, id, containerdBinary, container
 }
 
 func (s *service) Cleanup(ctx context.Context) (*taskAPI.DeleteResponse, error) {
+	s.log.Info("wasm Cleanup")
+
+	pid, err := wasmtime.ReadPid(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: can this be more graceful?
+	err = p.Kill()
+	if err != nil && err.Error() != "os: process already finished" {
+		return nil, err
+	}
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, err
 	}
 	path := filepath.Join(filepath.Dir(cwd), s.id)
-
-	// TODO: Provide way to reach process
-	//ns, err := namespaces.NamespaceRequired(ctx)
-	//if err != nil {
-	//	return nil, err
-	//}
-
-	//runtime, err := wasmtime.ReadRuntime(path)
-	//if err != nil {
-	//	return nil, err
-	//}
-	//r := proc.NewRunc(proc.RuncRoot, path, ns, runtime, "", false)
-	//if err := r.Delete(ctx, s.id, &runcC.DeleteOpts{
-	//	Force: true,
-	//}); err != nil {
-	//	logrus.WithError(err).Warn("failed to remove runc container")
-	//}
 	if err := mount.UnmountAll(filepath.Join(path, "rootfs"), 0); err != nil {
-		logrus.WithError(err).Warn("failed to cleanup rootfs mount")
+		// TODO: should we just log here?
+		//logrus.WithError(err).Warn("failed to cleanup rootfs mount")
+		return nil, err
 	}
+
 	return &taskAPI.DeleteResponse{
 		ExitedAt:   time.Now(),
 		ExitStatus: 128 + uint32(unix.SIGKILL),
@@ -238,10 +244,9 @@ func (s *service) Cleanup(ctx context.Context) (*taskAPI.DeleteResponse, error) 
 
 // Create a new initial process and container with the underlying OCI runtime
 func (s *service) Create(ctx context.Context, r *taskAPI.CreateTaskRequest) (_ *taskAPI.CreateTaskResponse, err error) {
+	s.log.Info("wasm Create")
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	logrus.Infof("creating %s", r.ID)
 
 	container, err := wasmtime.NewContainer(ctx, s.platform, r, s.ec)
 	if err != nil {
@@ -271,7 +276,7 @@ func (s *service) Create(ctx context.Context, r *taskAPI.CreateTaskRequest) (_ *
 
 // Start a process
 func (s *service) Start(ctx context.Context, r *taskAPI.StartRequest) (*taskAPI.StartResponse, error) {
-	logrus.Infof("starting %s", r.ID)
+	s.log.Info("wasm Start")
 	container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
@@ -284,6 +289,7 @@ func (s *service) Start(ctx context.Context, r *taskAPI.StartRequest) (*taskAPI.
 		s.eventSendMu.Unlock()
 		return nil, errdefs.ToGRPC(err)
 	}
+
 	//if err := s.ep.Add(container.ID, container.Cgroup()); err != nil {
 	//	logrus.WithError(err).Error("add cg to OOM monitor")
 	//}
@@ -308,6 +314,7 @@ func (s *service) Start(ctx context.Context, r *taskAPI.StartRequest) (*taskAPI.
 
 // Delete the initial process and container
 func (s *service) Delete(ctx context.Context, r *taskAPI.DeleteRequest) (*taskAPI.DeleteResponse, error) {
+	s.log.Info("wasm Delete")
 	container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
@@ -342,7 +349,9 @@ func (s *service) Delete(ctx context.Context, r *taskAPI.DeleteRequest) (*taskAP
 
 // Exec an additional process inside the container
 func (s *service) Exec(ctx context.Context, r *taskAPI.ExecProcessRequest) (*ptypes.Empty, error) {
-	container, err := s.getContainer(r.ID)
+	s.log.Info("wasm Exec")
+	return nil, errdefs.ErrNotImplemented
+	/*container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -358,19 +367,21 @@ func (s *service) Exec(ctx context.Context, r *taskAPI.ExecProcessRequest) (*pty
 		ContainerID: container.ID,
 		ExecID:      process.ID(),
 	})
-	return empty, nil
+	return empty, nil*/
 }
 
 // ResizePty of a process
 func (s *service) ResizePty(ctx context.Context, r *taskAPI.ResizePtyRequest) (*ptypes.Empty, error) {
-	container, err := s.getContainer(r.ID)
+	s.log.Info("wasm ResizePty")
+	return nil, errdefs.ErrNotImplemented
+	/*container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
 	}
 	if err := container.ResizePty(ctx, r); err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
-	return empty, nil
+	return empty, nil*/
 }
 
 // State returns runtime state information for a process
@@ -401,6 +412,7 @@ func (s *service) State(ctx context.Context, r *taskAPI.StateRequest) (*taskAPI.
 		status = task.StatusPausing
 	}
 	sio := p.Stdio()
+	s.log.Infof("wasm State %s", status)
 	return &taskAPI.StateResponse{
 		ID:         p.ID(),
 		Bundle:     container.Bundle,
@@ -417,7 +429,10 @@ func (s *service) State(ctx context.Context, r *taskAPI.StateRequest) (*taskAPI.
 
 // Pause the container
 func (s *service) Pause(ctx context.Context, r *taskAPI.PauseRequest) (*ptypes.Empty, error) {
-	container, err := s.getContainer(r.ID)
+
+	s.log.Info("wasm Pause")
+	return nil, errdefs.ErrNotImplemented
+	/*container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -427,12 +442,14 @@ func (s *service) Pause(ctx context.Context, r *taskAPI.PauseRequest) (*ptypes.E
 	s.send(&eventstypes.TaskPaused{
 		ContainerID: container.ID,
 	})
-	return empty, nil
+	return empty, nil*/
 }
 
 // Resume the container
 func (s *service) Resume(ctx context.Context, r *taskAPI.ResumeRequest) (*ptypes.Empty, error) {
-	container, err := s.getContainer(r.ID)
+	s.log.Info("wasm Resume")
+	return nil, errdefs.ErrNotImplemented
+	/*container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -442,11 +459,12 @@ func (s *service) Resume(ctx context.Context, r *taskAPI.ResumeRequest) (*ptypes
 	s.send(&eventstypes.TaskResumed{
 		ContainerID: container.ID,
 	})
-	return empty, nil
+	return empty, nil*/
 }
 
 // Kill a process with the provided signal
 func (s *service) Kill(ctx context.Context, r *taskAPI.KillRequest) (*ptypes.Empty, error) {
+	s.log.Info("wasm Kill")
 	container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
@@ -459,7 +477,9 @@ func (s *service) Kill(ctx context.Context, r *taskAPI.KillRequest) (*ptypes.Emp
 
 // Pids returns all pids inside the container
 func (s *service) Pids(ctx context.Context, r *taskAPI.PidsRequest) (*taskAPI.PidsResponse, error) {
-	container, err := s.getContainer(r.ID)
+	s.log.Info("wasm Pids")
+	return nil, errdefs.ErrNotImplemented
+	/*container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -489,47 +509,54 @@ func (s *service) Pids(ctx context.Context, r *taskAPI.PidsRequest) (*taskAPI.Pi
 	}
 	return &taskAPI.PidsResponse{
 		Processes: processes,
-	}, nil
+	}, nil*/
 }
 
 // CloseIO of a process
 func (s *service) CloseIO(ctx context.Context, r *taskAPI.CloseIORequest) (*ptypes.Empty, error) {
-	container, err := s.getContainer(r.ID)
+	s.log.Info("wasm CloseIO")
+	return nil, errdefs.ErrNotImplemented
+	/*container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
 	}
 	if err := container.CloseIO(ctx, r); err != nil {
 		return nil, err
 	}
-	return empty, nil
+	return empty, nil*/
 }
 
 // Checkpoint the container
 func (s *service) Checkpoint(ctx context.Context, r *taskAPI.CheckpointTaskRequest) (*ptypes.Empty, error) {
-	container, err := s.getContainer(r.ID)
+	s.log.Info("wasm Checkpoint")
+	return nil, errdefs.ErrNotImplemented
+	/*container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
 	}
 	if err := container.Checkpoint(ctx, r); err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
-	return empty, nil
+	return empty, nil*/
 }
 
 // Update a running container
 func (s *service) Update(ctx context.Context, r *taskAPI.UpdateTaskRequest) (*ptypes.Empty, error) {
-	container, err := s.getContainer(r.ID)
+	s.log.Info("wasm Update")
+	return nil, errdefs.ErrNotImplemented
+	/*container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
 	}
 	if err := container.Update(ctx, r); err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
-	return empty, nil
+	return empty, nil*/
 }
 
 // Wait for a process to exit
 func (s *service) Wait(ctx context.Context, r *taskAPI.WaitRequest) (*taskAPI.WaitResponse, error) {
+	s.log.Info("wasm Wait")
 	container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
@@ -548,18 +575,23 @@ func (s *service) Wait(ctx context.Context, r *taskAPI.WaitRequest) (*taskAPI.Wa
 
 // Connect returns shim information such as the shim's pid
 func (s *service) Connect(ctx context.Context, r *taskAPI.ConnectRequest) (*taskAPI.ConnectResponse, error) {
-	var pid int
+	s.log.Info("wasm Connect")
+	return nil, errdefs.ErrNotImplemented
+	/*var pid int
 	if container, err := s.getContainer(r.ID); err == nil {
 		pid = container.Pid()
 	}
 	return &taskAPI.ConnectResponse{
 		ShimPid: uint32(os.Getpid()),
 		TaskPid: uint32(pid),
-	}, nil
+	}, nil*/
 }
 
 func (s *service) Shutdown(ctx context.Context, r *taskAPI.ShutdownRequest) (*ptypes.Empty, error) {
-	s.mu.Lock()
+	s.log.Info("wasm Shutdown")
+	os.Exit(0)
+	return empty, nil
+	/*s.mu.Lock()
 	// return out if the shim is still servicing containers
 	if len(s.containers) > 0 {
 		s.mu.Unlock()
@@ -567,10 +599,11 @@ func (s *service) Shutdown(ctx context.Context, r *taskAPI.ShutdownRequest) (*pt
 	}
 	s.cancel()
 	close(s.events)
-	return empty, nil
+	return empty, nil*/
 }
 
 func (s *service) Stats(ctx context.Context, r *taskAPI.StatsRequest) (*taskAPI.StatsResponse, error) {
+	s.log.Info("wasm Stats")
 	container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err

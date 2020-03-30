@@ -39,6 +39,21 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Container for operating on a runc container and its processes
+type Container struct {
+	mu sync.Mutex
+
+	// ID of the container
+	ID string
+	// Bundle path
+	Bundle string
+
+	ec        chan<- Exit
+	cgroup    cgroups.Cgroup
+	process   proc.Process
+	processes map[string]proc.Process
+}
+
 type Exit struct {
 	Pid    int
 	Status int
@@ -46,11 +61,6 @@ type Exit struct {
 
 // NewContainer returns a new runc container
 func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTaskRequest, ec chan<- Exit) (c *Container, err error) {
-	//ns, err := namespaces.NamespaceRequired(ctx)
-	//if err != nil {
-	//	return nil, errors.Wrap(err, "create namespace")
-	//}
-
 	//var opts options.Options
 	//if r.Options != nil {
 	//	v, err := typeurl.UnmarshalAny(r.Options)
@@ -88,7 +98,7 @@ func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTa
 		}
 		if rootfs == "" {
 			rootfs = filepath.Join(r.Bundle, "rootfs")
-			if err := os.Mkdir(rootfs, 0711); err != nil {
+			if err := os.MkdirAll(rootfs, 0711); err != nil {
 				return nil, err
 			}
 		}
@@ -150,6 +160,7 @@ func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTa
 		processes: make(map[string]proc.Process),
 	}
 
+	// TODO: pid isn't set yet so this will never bo >0 ?
 	pid := p.Pid()
 	if pid > 0 {
 		cg, err := cgroups.Load(cgroups.V1, cgroups.PidPath(pid))
@@ -176,23 +187,6 @@ func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTa
 //func WriteRuntime(path, runtime string) error {
 //	return ioutil.WriteFile(filepath.Join(path, "runtime"), []byte(runtime), 0600)
 //}
-
-// Container for operating on a runc container and its processes
-type Container struct {
-	mu sync.Mutex
-
-	// ID of the container
-	ID string
-	// Bundle path
-	Bundle string
-	// Root Remap
-	RootRemap string
-
-	ec        chan<- Exit
-	cgroup    cgroups.Cgroup
-	process   proc.Process
-	processes map[string]proc.Process
-}
 
 // All processes in the container
 func (c *Container) All() (o []proc.Process) {

@@ -6,17 +6,18 @@ RUN apt-get update && \
         make \
         xz-utils \
         git \
-        gcc
+        gcc \
+        golang
 
 # Install golang
-RUN cd /tmp && \
-    curl -LO  https://dl.google.com/go/go1.14.linux-amd64.tar.gz && \
-    tar -xvf go1.14.linux-amd64.tar.gz && \
-    mv go /usr/local && \
-    rm go1.14.linux-amd64.tar.gz
-ENV GOROOT="/usr/local/go"
-ENV GOPATH="/root/go"
-ENV PATH="${GOPATH}/bin:${GOROOT}/bin:${PATH}"
+#RUN cd /tmp && \
+#    curl -LO  https://dl.google.com/go/go1.14.linux-amd64.tar.gz && \
+#    tar -xvf go1.14.linux-amd64.tar.gz && \
+#    mv go /usr/local && \
+#    rm go1.14.linux-amd64.tar.gz
+#ENV GOROOT="/usr/local/go"
+#ENV GOPATH="/root/go"
+#ENV PATH="${GOPATH}/bin:${GOROOT}/bin:${PATH}"
 
 # Install wasmtime
 ENV WASMTIME_VERSION 0.60.0

@@ -3,24 +3,35 @@ package wasmtime
 import (
 	"context"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/containerd/console"
 	"github.com/containerd/containerd/errdefs"
+	"github.com/containerd/containerd/log"
+	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/pkg/stdio"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	// wasmtimeRoot is the path to the root wasmetime state directory
+	wasmtimeRoot = "/run/containerd/wasmtime"
+	initPidFile  = "init.pid"
 )
 
 type process struct {
 	mu sync.Mutex
 
 	id         string
-	pid        int
 	exitStatus int
 	exitTime   time.Time
 	stdio      stdio.Stdio
@@ -41,7 +52,12 @@ func (p *process) ID() string {
 }
 
 func (p *process) Pid() int {
-	return p.pid
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.process != nil {
+		return p.process.Pid
+	}
+	return 0
 }
 
 func (p *process) ExitStatus() int {
@@ -90,16 +106,20 @@ func (p *process) Resize(ws console.WinSize) error {
 	return nil
 }
 
-func (p *process) Start(context.Context) (err error) {
+func (p *process) Start(ctx context.Context) (err error) {
 	var args []string
-	for _, rm := range p.remaps {
+	/*for _, rm := range p.remaps {
 		args = append(args, "--mapdir="+rm)
 	}
 	for _, env := range p.env {
 		args = append(args, "--env="+env)
-	}
+	}*/
 	args = append(args, p.args...)
+
 	cmd := exec.Command("wasmtime", args...)
+	if strings.HasSuffix(args[0], "pause") {
+		cmd = exec.Command(args[0])
+	}
 
 	var in io.Closer
 	var closers []io.Closer
@@ -158,6 +178,14 @@ func (p *process) Start(context.Context) (err error) {
 	p.stdin = in
 	p.mu.Unlock()
 
+	err = p.writePid(ctx)
+	if err != nil {
+		return err
+	}
+
+	log := log.GetLogger(context.TODO())
+	log.Infof("wasm Start: %d", p.Pid())
+
 	go func() {
 		waitStatus, err := p.process.Wait()
 		p.mu.Lock()
@@ -174,7 +202,7 @@ func (p *process) Start(context.Context) (err error) {
 		close(p.exited)
 
 		p.ec <- Exit{
-			Pid:    p.pid,
+			Pid:    p.Pid(),
 			Status: p.exitStatus,
 		}
 
@@ -199,11 +227,54 @@ func (p *process) Kill(context.Context, uint32, bool) error {
 		return errors.New("not started")
 	}
 
-	return p.process.Kill()
+	err := p.process.Kill()
+	if err != nil && err.Error() != "os: process already finished" {
+		return err
+	}
+	return nil
 }
 
 func (p *process) SetExited(status int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.exitStatus = status
+}
+
+func (p *process) writePid(ctx context.Context) error {
+	ns, err := namespaces.NamespaceRequired(ctx)
+	if err != nil {
+		return errors.Wrap(err, "create namespace")
+	}
+
+	// Create state directory
+	stateRoot := filepath.Join(wasmtimeRoot, ns)
+	if err := os.MkdirAll(stateRoot, 0700); err != nil {
+		return err
+	}
+
+	err = ioutil.WriteFile(filepath.Join(stateRoot, initPidFile), []byte(string(p.Pid())), 0600)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// ReadPid return the PID of the container process from disk
+func ReadPid(ctx context.Context) (int, error) {
+	ns, err := namespaces.NamespaceRequired(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	bytes, err := ioutil.ReadFile(filepath.Join(wasmtimeRoot, ns, initPidFile))
+	if err != nil {
+		return 0, err
+	}
+
+	pid, err := strconv.Atoi(string(bytes))
+	if err != nil {
+		return 0, err
+	}
+
+	return pid, nil
 }
