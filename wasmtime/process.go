@@ -221,7 +221,20 @@ func (p *process) Start(ctx context.Context) (err error) {
 	return nil
 }
 
-func (p *process) Delete(context.Context) error {
+func (p *process) Delete(ctx context.Context) error {
+
+	ns, err := namespaces.NamespaceRequired(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Delete pid file
+	pidFilePath := filepath.Join(wasmtimeRoot, ns, p.id, initPidFile)
+	err = os.Remove(pidFilePath)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
 	return nil
 }
 
@@ -279,18 +292,4 @@ func ReadPid(ctx context.Context, id string) (int, error) {
 	}
 
 	return pid, nil
-}
-
-func Cleanup(ctx context.Context, id string) error {
-	ns, err := namespaces.NamespaceRequired(ctx)
-	if err != nil {
-		return err
-	}
-	stateRoot := filepath.Join(wasmtimeRoot, ns, id)
-
-	err = os.RemoveAll(stateRoot)
-	if err != nil {
-		return err
-	}
-	return nil
 }

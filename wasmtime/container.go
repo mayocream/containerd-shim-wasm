@@ -41,6 +41,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	rootfs = "rootfs"
+)
+
 // Container for operating on a runc container and its processes
 type Container struct {
 	mu sync.Mutex
@@ -111,8 +115,8 @@ func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTa
 			continue
 		}
 		if rootfs == "" {
-			rootfs = filepath.Join(r.Bundle, "rootfs")
-			if err := os.MkdirAll(rootfs, 0711); err != nil {
+			rootfs = filepath.Join(r.Bundle, rootfs)
+			if err := os.MkdirAll(rootfs, 0700); err != nil {
 				return nil, err
 			}
 		}
@@ -313,16 +317,38 @@ func (c *Container) Start(ctx context.Context, r *task.StartRequest) (proc.Proce
 
 // Delete the container or a process by id
 func (c *Container) Delete(ctx context.Context, r *task.DeleteRequest) (proc.Process, error) {
+
 	p, err := c.Process(r.ExecID)
 	if err != nil {
 		return nil, err
 	}
-	if err := p.Delete(ctx); err != nil {
-		return nil, err
-	}
+
 	if r.ExecID != "" {
 		c.ProcessRemove(r.ExecID)
+	} else {
+		// This is an init process so clear up resources
+		if err := p.Delete(ctx); err != nil {
+			return nil, err
+		}
+
+		// Delete state directory
+		ns, err := namespaces.NamespaceRequired(ctx)
+		if err != nil {
+			return nil, err
+		}
+		stateRoot := filepath.Join(wasmtimeRoot, ns, c.ID)
+		err = os.RemoveAll(stateRoot)
+		if err != nil {
+			return nil, err
+		}
+
+		// Unmount
+		rootfs := filepath.Join(c.Bundle, rootfs)
+		if err := mount.UnmountAll(rootfs, 0); err != nil {
+			return nil, err
+		}
 	}
+
 	return p, nil
 }
 

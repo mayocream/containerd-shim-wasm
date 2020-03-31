@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -32,7 +31,6 @@ import (
 	"github.com/containerd/containerd/api/types/task"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/log"
-	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/pkg/stdio"
 	"github.com/containerd/containerd/runtime/v2/shim"
@@ -42,7 +40,6 @@ import (
 	ptypes "github.com/gogo/protobuf/types"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/sys/unix"
 )
 
 var (
@@ -63,7 +60,7 @@ type spec struct {
 }
 
 // New returns a new shim service that can be used via GRPC
-func New(ctx context.Context, id string, publisher shim.Publisher, shutdown func()) (shim.Shim, error) {
+func New(ctx context.Context, id string, publisher shim.Publisher, cancel func()) (shim.Shim, error) {
 	ep, err := wasmtime.NewOOMEpoller(publisher)
 	if err != nil {
 		return nil, err
@@ -75,13 +72,13 @@ func New(ctx context.Context, id string, publisher shim.Publisher, shutdown func
 		events:     make(chan interface{}, 128),
 		ec:         make(chan wasmtime.Exit),
 		ep:         ep,
-		cancel:     shutdown,
+		cancel:     cancel,
 		containers: make(map[string]*wasmtime.Container),
 		log:        log.GetLogger(context.TODO()),
 	}
 	go s.processExits()
 	if err := s.initPlatform(); err != nil {
-		shutdown()
+		cancel()
 		return nil, errors.Wrap(err, "failed to initialized platform behavior")
 	}
 	go s.forward(ctx, publisher)
@@ -209,42 +206,9 @@ func (s *service) StartShim(ctx context.Context, id, containerdBinary, container
 func (s *service) Cleanup(ctx context.Context) (*taskAPI.DeleteResponse, error) {
 	s.log.Info("wasm Cleanup")
 
-	pid, err := wasmtime.ReadPid(ctx, s.id)
-	if err != nil {
-		return nil, err
-	}
-
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO: can this be more graceful?
-	err = p.Kill()
-	if err != nil && err.Error() != "os: process already finished" {
-		return nil, err
-	}
-
-	// Remove state directory
-	err = wasmtime.Cleanup(ctx, s.id)
-	if err != nil {
-		return nil, err
-	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	path := filepath.Join(filepath.Dir(cwd), s.id)
-	if err := mount.UnmountAll(filepath.Join(path, "rootfs"), 0); err != nil {
-		// TODO: should we just log here?
-		//logrus.WithError(err).Warn("failed to cleanup rootfs mount")
-		return nil, err
-	}
-
 	return &taskAPI.DeleteResponse{
 		ExitedAt:   time.Now(),
-		ExitStatus: 128 + uint32(unix.SIGKILL),
+		ExitStatus: 128,
 	}, nil
 }
 
@@ -470,7 +434,7 @@ func (s *service) Resume(ctx context.Context, r *taskAPI.ResumeRequest) (*ptypes
 
 // Kill a process with the provided signal
 func (s *service) Kill(ctx context.Context, r *taskAPI.KillRequest) (*ptypes.Empty, error) {
-	s.log.Info("wasm Kill")
+	s.log.Infof("wasm Kill %s", r.ID)
 	container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
@@ -595,9 +559,7 @@ func (s *service) Connect(ctx context.Context, r *taskAPI.ConnectRequest) (*task
 
 func (s *service) Shutdown(ctx context.Context, r *taskAPI.ShutdownRequest) (*ptypes.Empty, error) {
 	s.log.Info("wasm Shutdown")
-	os.Exit(0)
-	return empty, nil
-	/*s.mu.Lock()
+	s.mu.Lock()
 	// return out if the shim is still servicing containers
 	if len(s.containers) > 0 {
 		s.mu.Unlock()
@@ -605,7 +567,8 @@ func (s *service) Shutdown(ctx context.Context, r *taskAPI.ShutdownRequest) (*pt
 	}
 	s.cancel()
 	close(s.events)
-	return empty, nil*/
+	os.Exit(0)
+	return empty, nil
 }
 
 func (s *service) Stats(ctx context.Context, r *taskAPI.StatsRequest) (*taskAPI.StatsResponse, error) {
