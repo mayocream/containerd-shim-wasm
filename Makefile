@@ -21,8 +21,8 @@ delete:
 	kind delete cluster --name $(CLUSTER_NAME)
 
 buildx:
-	docker build --platform=local -o . git://github.com/docker/buildx
-	mv buildx $(HOME)/.docker/cli-plugins/docker-buildx
+	docker build --platform=local -o $(BIN_DIR) git://github.com/docker/buildx
+	cp -a $(BIN_DIR)/buildx $(HOME)/.docker/cli-plugins/docker-buildx
 
 UNAME_S = $(shell uname -s)
 wasm-cli-plugin:
@@ -37,18 +37,10 @@ endif
 $(BIN_DIR):
 	mkdir -p $(BIN_DIR)
 
-containerd-shim-wasm-v1: $(BIN_DIR)
+shim: $(BIN_DIR)
 	GOOS=linux GOARCH=amd64 go build \
 		-o $(BIN_DIR)/containerd-shim-wasm-v1 \
 		./cmd/containerd-shim-wasm-v1
-
-wasmtime: $(BIN_DIR)
-	cd /tmp && \
-		curl -LO https://github.com/bytecodealliance/wasmtime/releases/download/cranelift-v${WASMTIME_VERSION}/wasmtime-cranelift-v${WASMTIME_VERSION}-x86_64-linux.tar.xz && \
-		tar -xf wasmtime-cranelift-v${WASMTIME_VERSION}-x86_64-linux.tar.xz && \
-		mv wasmtime-cranelift-v${WASMTIME_VERSION}-x86_64-linux/wasmtime $(CURDIR)/$(BIN_DIR)/wasmtime && \
-		rm wasmtime-cranelift-v${WASMTIME_VERSION}-x86_64-linux.tar.xz && \
-		rm -Rf wasmtime-cranelift-v${WASMTIME_VERSION}-x86_64-linux
 
 build:
 	# install plugin

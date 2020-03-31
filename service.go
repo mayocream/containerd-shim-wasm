@@ -547,14 +547,14 @@ func (s *service) Wait(ctx context.Context, r *taskAPI.WaitRequest) (*taskAPI.Wa
 func (s *service) Connect(ctx context.Context, r *taskAPI.ConnectRequest) (*taskAPI.ConnectResponse, error) {
 	s.log.Info("wasm Connect")
 	return nil, errdefs.ErrNotImplemented
-	/*var pid int
+	var pid int
 	if container, err := s.getContainer(r.ID); err == nil {
 		pid = container.Pid()
 	}
 	return &taskAPI.ConnectResponse{
 		ShimPid: uint32(os.Getpid()),
 		TaskPid: uint32(pid),
-	}, nil*/
+	}, nil
 }
 
 func (s *service) Shutdown(ctx context.Context, r *taskAPI.ShutdownRequest) (*ptypes.Empty, error) {
