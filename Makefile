@@ -2,12 +2,15 @@ CLUSTER_NAME = test
 BIN_DIR = bin
 BUILD_IMAGE = wasm
 APP_IMAGE = dippynark/hello-wasm:v0.1.0
+
 WASMTIME_VERSION=0.60.0
+DOCKER_WASM_VERSION = v0.2.0
 
 export DOCKER_BUILDKIT = 1
-#export KUBECONFIG = $(CURDIR)/kubeconfig
 
-reload: containerd-shim-wasm-v1
+all: bin hello_wasm create apply
+
+reload: docker_shim
 	kubectl delete pod --all --grace-period=0 --force
 
 apply:
@@ -20,27 +23,37 @@ create:
 delete:
 	kind delete cluster --name $(CLUSTER_NAME)
 
-buildx:
+init:
+	mkdir -p $(BIN_DIR)
+
+bin: init plugin_buildx plugin_wasm docker_shim
+
+plugin_buildx:
 	docker build --platform=local -o $(BIN_DIR) git://github.com/docker/buildx
 	cp -a $(BIN_DIR)/buildx $(HOME)/.docker/cli-plugins/docker-buildx
 
-UNAME_S = $(shell uname -s)
-wasm-cli-plugin:
-ifeq ($(UNAME_S),Linux)
-	cd /tmp &&
-		curl
-endif
-ifeq ($(UNAME_S),Darwin)
+plugin_wasm:
+	curl -Ls https://github.com/tonistiigi/wasm-cli-plugin/releases/download/$(DOCKER_WASM_VERSION)/docker-wasm-$(DOCKER_WASM_VERSION).$(shell uname -s | tr '[:upper:]' '[:lower:]')-amd64.tar.gz \
+		| tar -xzOf - docker-wasm > $(BIN_DIR)/docker-wasm
+	chmod +x $(BIN_DIR)/docker-wasm
+	cp -a $(BIN_DIR)/docker-wasm $(HOME)/.docker/cli-plugins/docker-wasm
 
-endif
+.PHONY: wasmtime
+wasmtime:
+	docker run -it \
+		-v $(CURDIR)/$(BIN_DIR):/out \
+		$(BUILD_IMAGE) \
+		cp -a /usr/local/bin/wasmtime /out/wasmtime
 
-$(BIN_DIR):
-	mkdir -p $(BIN_DIR)
-
-shim: $(BIN_DIR)
+shim:
 	GOOS=linux GOARCH=amd64 go build \
 		-o $(BIN_DIR)/containerd-shim-wasm-v1 \
 		./cmd/containerd-shim-wasm-v1
+
+hello_wasm: build push
+
+run:
+	wasmtime ./$(BIN_DIR)/hello-wasm
 
 build:
 	# install plugin
@@ -50,9 +63,6 @@ build:
 		-t $(APP_IMAGE) \
 		--platform=wasi/wasm \
 		-f ./hello-wasm/Dockerfile .
-
-run:
-	wasmtime ./$(BIN_DIR)/hello-wasm
 
 push:
 	docker buildx build \
@@ -65,14 +75,18 @@ docker_image:
 	docker build -t $(BUILD_IMAGE) $(CURDIR)
 
 docker_shell: docker_image
-	@docker run -it \
+	docker run -it \
 		-v /var/run/docker.sock:/var/run/docker.sock \
+		-v $(CURDIR)/cache/go-build:/root/.cache/go-build \
+		-v $(CURDIR)/cache/go-home:/root/go \
 		-v $(CURDIR):/workspace \
 		$(BUILD_IMAGE)
 
 docker_%: docker_image
-	@docker run -it \
+	docker run -it \
 		-v /var/run/docker.sock:/var/run/docker.sock \
+		-v $(CURDIR)/cache/go-build:/root/.cache/go-build \
+		-v $(CURDIR)/cache/go-home:/root/go \
 		-v $(CURDIR):/workspace \
 		$(BUILD_IMAGE) \
 		make $*
