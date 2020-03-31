@@ -21,7 +21,6 @@ package wasmtime
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -31,9 +30,9 @@ import (
 	"github.com/containerd/console"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/mount"
-	"github.com/containerd/containerd/namespaces"
 	proc "github.com/containerd/containerd/pkg/process"
 	"github.com/containerd/containerd/pkg/stdio"
+	"github.com/containerd/containerd/runtime/v2/shim"
 	"github.com/containerd/containerd/runtime/v2/task"
 	"github.com/containerd/cri/pkg/annotations"
 	"github.com/opencontainers/runtime-spec/specs-go"
@@ -42,7 +41,8 @@ import (
 )
 
 const (
-	rootfs = "rootfs"
+	rootfs      = "rootfs"
+	initPidFile = "init.pid"
 )
 
 // Container for operating on a runc container and its processes
@@ -65,20 +65,8 @@ type Exit struct {
 	Status int
 }
 
-// NewContainer returns a new runc container
+// NewContainer returns a new wasm container
 func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTaskRequest, ec chan<- Exit) (c *Container, err error) {
-
-	ns, err := namespaces.NamespaceRequired(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "create namespace")
-	}
-
-	// Create state directory
-	stateRoot := filepath.Join(wasmtimeRoot, ns, r.ID)
-	if err := os.MkdirAll(stateRoot, 0700); err != nil {
-		return nil, err
-	}
-
 	//var opts options.Options
 	//if r.Options != nil {
 	//	v, err := typeurl.UnmarshalAny(r.Options)
@@ -93,62 +81,54 @@ func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTa
 	//	return nil, err
 	//}
 
-	b, err := ioutil.ReadFile(filepath.Join(r.Bundle, "config.json"))
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to read spec")
+	var mounts []proc.Mount
+	for _, m := range r.Rootfs {
+		mounts = append(mounts, proc.Mount{
+			Type:    m.Type,
+			Source:  m.Source,
+			Target:  m.Target,
+			Options: m.Options,
+		})
 	}
-
-	var spec specs.Spec
-	if err := json.Unmarshal(b, &spec); err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal spec")
-	}
-
-	if spec.Process == nil {
-		return nil, errors.Wrapf(errdefs.ErrInvalidArgument, "no process specification")
-	}
-
-	var rootRemap string
 
 	rootfs := ""
-	for _, m := range r.Rootfs {
-		if m.Type == "bind" {
-			continue
-		}
-		if rootfs == "" {
-			rootfs = filepath.Join(r.Bundle, rootfs)
-			if err := os.MkdirAll(rootfs, 0700); err != nil {
-				return nil, err
-			}
+	if len(mounts) > 0 {
+		rootfs = filepath.Join(r.Bundle, "rootfs")
+		if err := os.Mkdir(rootfs, 0700); err != nil && !os.IsExist(err) {
+			return nil, err
 		}
 	}
 
 	defer func() {
-		if err != nil && rootfs != "" {
+		if err != nil {
 			if err2 := mount.UnmountAll(rootfs, 0); err2 != nil {
 				logrus.WithError(err2).Warn("failed to cleanup rootfs mount")
 			}
 		}
 	}()
-
-	if rootfs != "" {
-		for _, rm := range r.Rootfs {
-			m := &mount.Mount{
-				Type:    rm.Type,
-				Source:  rm.Source,
-				Options: rm.Options,
-			}
-			if err := m.Mount(rootfs); err != nil {
-				return nil, errors.Wrapf(err, "failed to mount rootfs component %v", m)
-			}
+	for _, rm := range mounts {
+		m := &mount.Mount{
+			Type:    rm.Type,
+			Source:  rm.Source,
+			Options: rm.Options,
 		}
-	} else if len(r.Rootfs) > 0 {
-		rootfs = r.Rootfs[0].Source
-	} else if spec.Root != nil && spec.Root.Path != "" {
-		rootfs = spec.Root.Path
-	} else {
-		return nil, errors.Wrapf(errdefs.ErrInvalidArgument, "no root provided")
+		if err := m.Mount(rootfs); err != nil {
+			return nil, errors.Wrapf(err, "failed to mount rootfs component %v", m)
+		}
 	}
-	rootRemap = fmt.Sprintf("/:%s", rootfs)
+
+	// Read args from OCI config
+	b, err := ioutil.ReadFile(filepath.Join(r.Bundle, "config.json"))
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to read spec")
+	}
+	var spec specs.Spec
+	if err := json.Unmarshal(b, &spec); err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal spec")
+	}
+	if spec.Process == nil {
+		return nil, errors.Wrapf(errdefs.ErrInvalidArgument, "no process specification")
+	}
 	if len(spec.Process.Args) > 0 {
 		// TODO: bound this
 		spec.Process.Args[0] = filepath.Join(rootfs, spec.Process.Args[0])
@@ -161,9 +141,6 @@ func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTa
 			Stdout:   r.Stdout,
 			Stderr:   r.Stderr,
 			Terminal: r.Terminal,
-		},
-		remaps: []string{
-			rootRemap,
 		},
 		exited:    make(chan struct{}),
 		ec:        ec,
@@ -180,6 +157,7 @@ func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTa
 	}
 
 	// TODO: pid isn't set yet so this will never bo >0 ?
+	// TODO: setup cgroups
 	pid := p.Pid()
 	if pid > 0 {
 		cg, err := cgroups.Load(cgroups.V1, cgroups.PidPath(pid))
@@ -192,20 +170,6 @@ func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTa
 
 	return container, nil
 }
-
-//// ReadRuntime reads the runtime information from the path
-//func ReadRuntime(path string) (string, error) {
-//	data, err := ioutil.ReadFile(filepath.Join(path, "runtime"))
-//	if err != nil {
-//		return "", err
-//	}
-//	return string(data), nil
-//}
-//
-//// WriteRuntime writes the runtime information into the path
-//func WriteRuntime(path, runtime string) error {
-//	return ioutil.WriteFile(filepath.Join(path, "runtime"), []byte(runtime), 0600)
-//}
 
 // All processes in the container
 func (c *Container) All() (o []proc.Process) {
@@ -303,6 +267,12 @@ func (c *Container) Start(ctx context.Context, r *task.StartRequest) (proc.Proce
 		return nil, err
 	}
 
+	// Write pid to disk
+	err = shim.WritePidFile(filepath.Join(c.Bundle, initPidFile), p.Pid())
+	if err != nil {
+		return nil, err
+	}
+
 	logrus.Info("done starting", p)
 	if c.Cgroup() == nil && p.Pid() > 0 {
 		cg, err := cgroups.Load(cgroups.V1, cgroups.PidPath(p.Pid()))
@@ -317,38 +287,16 @@ func (c *Container) Start(ctx context.Context, r *task.StartRequest) (proc.Proce
 
 // Delete the container or a process by id
 func (c *Container) Delete(ctx context.Context, r *task.DeleteRequest) (proc.Process, error) {
-
 	p, err := c.Process(r.ExecID)
 	if err != nil {
 		return nil, err
 	}
-
+	if err := p.Delete(ctx); err != nil {
+		return nil, err
+	}
 	if r.ExecID != "" {
 		c.ProcessRemove(r.ExecID)
-	} else {
-		// This is an init process so clear up resources
-		if err := p.Delete(ctx); err != nil {
-			return nil, err
-		}
-
-		// Delete state directory
-		ns, err := namespaces.NamespaceRequired(ctx)
-		if err != nil {
-			return nil, err
-		}
-		stateRoot := filepath.Join(wasmtimeRoot, ns, c.ID)
-		err = os.RemoveAll(stateRoot)
-		if err != nil {
-			return nil, err
-		}
-
-		// Unmount
-		rootfs := filepath.Join(c.Bundle, rootfs)
-		if err := mount.UnmountAll(rootfs, 0); err != nil {
-			return nil, err
-		}
 	}
-
 	return p, nil
 }
 

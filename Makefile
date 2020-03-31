@@ -10,7 +10,7 @@ export DOCKER_BUILDKIT = 1
 
 all: bin hello_wasm create apply
 
-reload: docker_shim
+reload: shim
 	kubectl delete pod --all --grace-period=0 --force
 
 apply:
@@ -26,7 +26,7 @@ delete:
 init:
 	mkdir -p $(BIN_DIR)
 
-bin: init plugin_buildx plugin_wasm docker_shim
+bin: init plugin_buildx plugin_wasm shim wasmtime
 
 plugin_buildx:
 	docker build --platform=local -o $(BIN_DIR) git://github.com/docker/buildx

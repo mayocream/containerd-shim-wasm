@@ -3,11 +3,8 @@ package wasmtime
 import (
 	"context"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -15,16 +12,9 @@ import (
 	"github.com/containerd/console"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/log"
-	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/pkg/stdio"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-)
-
-const (
-	// wasmtimeRoot is the path to the root wasmetime state directory
-	wasmtimeRoot = "/run/containerd/wasmtime"
-	initPidFile  = "init.pid"
 )
 
 type process struct {
@@ -39,9 +29,8 @@ type process struct {
 	exited     chan struct{}
 	ec         chan<- Exit
 
-	remaps []string
-	env    []string
-	args   []string
+	env  []string
+	args []string
 
 	isSandbox bool
 
@@ -185,11 +174,6 @@ func (p *process) Start(ctx context.Context) (err error) {
 	p.stdin = in
 	p.mu.Unlock()
 
-	err = p.writePid(ctx)
-	if err != nil {
-		return err
-	}
-
 	log := log.GetLogger(context.TODO())
 	log.Infof("wasm Start: %d", p.Pid())
 
@@ -221,20 +205,7 @@ func (p *process) Start(ctx context.Context) (err error) {
 	return nil
 }
 
-func (p *process) Delete(ctx context.Context) error {
-
-	ns, err := namespaces.NamespaceRequired(ctx)
-	if err != nil {
-		return err
-	}
-
-	// Delete pid file
-	pidFilePath := filepath.Join(wasmtimeRoot, ns, p.id, initPidFile)
-	err = os.Remove(pidFilePath)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
+func (p *process) Delete(context.Context) error {
 	return nil
 }
 
@@ -258,38 +229,4 @@ func (p *process) SetExited(status int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.exitStatus = status
-}
-
-func (p *process) writePid(ctx context.Context) error {
-	ns, err := namespaces.NamespaceRequired(ctx)
-	if err != nil {
-		return errors.Wrap(err, "create namespace")
-	}
-	stateRoot := filepath.Join(wasmtimeRoot, ns, p.id)
-
-	err = ioutil.WriteFile(filepath.Join(stateRoot, initPidFile), []byte(strconv.Itoa(p.Pid())), 0600)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// ReadPid return the PID of the container process from disk
-func ReadPid(ctx context.Context, id string) (int, error) {
-	ns, err := namespaces.NamespaceRequired(ctx)
-	if err != nil {
-		return 0, err
-	}
-
-	bytes, err := ioutil.ReadFile(filepath.Join(wasmtimeRoot, ns, id, initPidFile))
-	if err != nil {
-		return 0, err
-	}
-
-	pid, err := strconv.Atoi(string(bytes))
-	if err != nil {
-		return 0, err
-	}
-
-	return pid, nil
 }

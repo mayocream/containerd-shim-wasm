@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -31,6 +32,7 @@ import (
 	"github.com/containerd/containerd/api/types/task"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/log"
+	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/pkg/stdio"
 	"github.com/containerd/containerd/runtime/v2/shim"
@@ -40,6 +42,7 @@ import (
 	ptypes "github.com/gogo/protobuf/types"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 )
 
 var (
@@ -203,12 +206,22 @@ func (s *service) StartShim(ctx context.Context, id, containerdBinary, container
 	return address, nil
 }
 
+// https://github.com/containerd/containerd/tree/master/runtime/v2#delete
 func (s *service) Cleanup(ctx context.Context) (*taskAPI.DeleteResponse, error) {
 	s.log.Info("wasm Cleanup")
 
+	// Unmount rootfs mounts
+	pwd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	if err := mount.UnmountAll(filepath.Join(pwd, "rootfs"), 0); err != nil {
+		logrus.WithError(err).Warn("failed to cleanup rootfs mount")
+	}
+
 	return &taskAPI.DeleteResponse{
 		ExitedAt:   time.Now(),
-		ExitStatus: 128,
+		ExitStatus: 128 + uint32(unix.SIGKILL),
 	}, nil
 }
 
