@@ -415,7 +415,7 @@ func (s *service) Pause(ctx context.Context, r *taskAPI.PauseRequest) (*ptypes.E
 
 	s.log.Info("wasm Pause")
 	return nil, errdefs.ErrNotImplemented
-	/*container, err := s.getContainer(r.ID)
+	container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -425,14 +425,14 @@ func (s *service) Pause(ctx context.Context, r *taskAPI.PauseRequest) (*ptypes.E
 	s.send(&eventstypes.TaskPaused{
 		ContainerID: container.ID,
 	})
-	return empty, nil*/
+	return empty, nil
 }
 
 // Resume the container
 func (s *service) Resume(ctx context.Context, r *taskAPI.ResumeRequest) (*ptypes.Empty, error) {
 	s.log.Info("wasm Resume")
 	return nil, errdefs.ErrNotImplemented
-	/*container, err := s.getContainer(r.ID)
+	container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -442,7 +442,7 @@ func (s *service) Resume(ctx context.Context, r *taskAPI.ResumeRequest) (*ptypes
 	s.send(&eventstypes.TaskResumed{
 		ContainerID: container.ID,
 	})
-	return empty, nil*/
+	return empty, nil
 }
 
 // Kill a process with the provided signal
@@ -499,42 +499,42 @@ func (s *service) Pids(ctx context.Context, r *taskAPI.PidsRequest) (*taskAPI.Pi
 func (s *service) CloseIO(ctx context.Context, r *taskAPI.CloseIORequest) (*ptypes.Empty, error) {
 	s.log.Info("wasm CloseIO")
 	return nil, errdefs.ErrNotImplemented
-	/*container, err := s.getContainer(r.ID)
+	container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
 	}
 	if err := container.CloseIO(ctx, r); err != nil {
 		return nil, err
 	}
-	return empty, nil*/
+	return empty, nil
 }
 
 // Checkpoint the container
 func (s *service) Checkpoint(ctx context.Context, r *taskAPI.CheckpointTaskRequest) (*ptypes.Empty, error) {
 	s.log.Info("wasm Checkpoint")
 	return nil, errdefs.ErrNotImplemented
-	/*container, err := s.getContainer(r.ID)
+	container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
 	}
 	if err := container.Checkpoint(ctx, r); err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
-	return empty, nil*/
+	return empty, nil
 }
 
 // Update a running container
 func (s *service) Update(ctx context.Context, r *taskAPI.UpdateTaskRequest) (*ptypes.Empty, error) {
 	s.log.Info("wasm Update")
 	return nil, errdefs.ErrNotImplemented
-	/*container, err := s.getContainer(r.ID)
+	container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
 	}
 	if err := container.Update(ctx, r); err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
-	return empty, nil*/
+	return empty, nil
 }
 
 // Wait for a process to exit

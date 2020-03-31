@@ -209,19 +209,30 @@ func (p *process) Delete(context.Context) error {
 	return nil
 }
 
-func (p *process) Kill(context.Context, uint32, bool) error {
+func (p *process) Kill(ctx context.Context, signal uint32, all bool) error {
 	p.mu.Lock()
-	running := p.process != nil
-	p.mu.Unlock()
+	defer p.mu.Unlock()
 
-	if !running {
-		return errors.New("not started")
+	// Verify process was started
+	if p.process == nil {
+		return errors.New("process not started")
 	}
 
-	err := p.process.Kill()
-	if err != nil && err.Error() != "os: process already finished" {
+	// Verify process has not alredy finished
+	select {
+	case <-p.exited:
+		logrus.Info("process already finished")
+		return nil
+		// TODO: should we return an error if already finished?
+		//return errors.New("process already finished")
+	default:
+	}
+
+	// Send signal to process
+	if err := p.process.Signal(syscall.Signal(signal)); err != nil && err.Error() != "process already finished" {
 		return err
 	}
+
 	return nil
 }
 

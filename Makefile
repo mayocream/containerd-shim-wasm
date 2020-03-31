@@ -10,8 +10,10 @@ export DOCKER_BUILDKIT = 1
 
 all: bin hello_wasm create apply
 
+hard_reload: shim delete create apply
+
 reload: shim
-	kubectl delete pod --all --grace-period=0 --force
+	kubectl delete pod --all
 
 apply:
 	kubectl apply -f config/runtime-class.yaml
