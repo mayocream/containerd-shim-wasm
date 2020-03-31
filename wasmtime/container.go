@@ -27,6 +27,7 @@ import (
 	"sync"
 
 	"github.com/containerd/cgroups"
+	cgroupsv2 "github.com/containerd/cgroups/v2"
 	"github.com/containerd/console"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/mount"
@@ -42,7 +43,7 @@ import (
 
 const (
 	rootfs      = "rootfs"
-	initPidFile = "init.pid"
+	InitPidFile = "init.pid"
 )
 
 // Container for operating on a runc container and its processes
@@ -54,8 +55,9 @@ type Container struct {
 	// Bundle path
 	Bundle string
 
+	// cgroup is either cgroups.Cgroup or *cgroupsv2.Manager
+	cgroup    interface{}
 	ec        chan<- Exit
-	cgroup    cgroups.Cgroup
 	process   proc.Process
 	processes map[string]proc.Process
 }
@@ -146,7 +148,7 @@ func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTa
 		ec:        ec,
 		env:       spec.Process.Env,
 		args:      spec.Process.Args,
-		isSandbox: IsSandbox(&spec),
+		isSandbox: isSandbox(&spec),
 	}
 
 	container := &Container{
@@ -156,18 +158,7 @@ func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTa
 		processes: make(map[string]proc.Process),
 	}
 
-	// TODO: pid isn't set yet so this will never bo >0 ?
-	// TODO: setup cgroups
-	pid := p.Pid()
-	if pid > 0 {
-		cg, err := cgroups.Load(cgroups.V1, cgroups.PidPath(pid))
-		if err != nil {
-			logrus.WithError(err).Errorf("loading cgroup for %d", pid)
-		}
-		container.cgroup = cg
-	}
 	logrus.Infof("process created: %#v", p)
-
 	return container, nil
 }
 
@@ -203,14 +194,14 @@ func (c *Container) Pid() int {
 }
 
 // Cgroup of the container
-func (c *Container) Cgroup() cgroups.Cgroup {
+func (c *Container) Cgroup() interface{} {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.cgroup
 }
 
 // CgroupSet sets the cgroup to the container
-func (c *Container) CgroupSet(cg cgroups.Cgroup) {
+func (c *Container) CgroupSet(cg interface{}) {
 	c.mu.Lock()
 	c.cgroup = cg
 	c.mu.Unlock()
@@ -268,16 +259,32 @@ func (c *Container) Start(ctx context.Context, r *task.StartRequest) (proc.Proce
 	}
 
 	// Write pid to disk
-	err = shim.WritePidFile(filepath.Join(c.Bundle, initPidFile), p.Pid())
+	// TODO: use this for clean up
+	err = shim.WritePidFile(filepath.Join(c.Bundle, InitPidFile), p.Pid())
 	if err != nil {
 		return nil, err
 	}
 
 	logrus.Info("done starting", p)
 	if c.Cgroup() == nil && p.Pid() > 0 {
-		cg, err := cgroups.Load(cgroups.V1, cgroups.PidPath(p.Pid()))
-		if err != nil {
-			logrus.WithError(err).Errorf("loading cgroup for %d", p.Pid())
+		var cg interface{}
+		if cgroups.Mode() == cgroups.Unified {
+			g, err := cgroupsv2.PidGroupPath(p.Pid())
+			if err != nil {
+				//logrus.WithError(err).Errorf("loading cgroup2 for %d", p.Pid())
+				return nil, err
+			}
+			cg, err = cgroupsv2.LoadManager("/sys/fs/cgroup", g)
+			if err != nil {
+				//logrus.WithError(err).Errorf("loading cgroup2 for %d", p.Pid())
+				return nil, err
+			}
+		} else {
+			cg, err = cgroups.Load(cgroups.V1, cgroups.PidPath(p.Pid()))
+			if err != nil {
+				//logrus.WithError(err).Errorf("loading cgroup for %d", p.Pid())
+				return nil, err
+			}
 		}
 		c.cgroup = cg
 	}
@@ -374,8 +381,8 @@ func (c *Container) HasPid(pid int) bool {
 	return false
 }
 
-// IsSandbox checks whether a container is a sandbox container.
-func IsSandbox(spec *specs.Spec) bool {
+// isSandbox checks whether a container is a sandbox container.
+func isSandbox(spec *specs.Spec) bool {
 	t, ok := spec.Annotations[annotations.ContainerType]
 	return !ok || t == annotations.ContainerTypeSandbox
 }

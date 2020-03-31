@@ -19,15 +19,18 @@ package wasm
 import (
 	"context"
 	"encoding/json"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/containerd/cgroups"
+	cgroupsv2 "github.com/containerd/cgroups/v2"
 	eventstypes "github.com/containerd/containerd/api/events"
 	"github.com/containerd/containerd/api/types/task"
 	"github.com/containerd/containerd/errdefs"
@@ -35,6 +38,7 @@ import (
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/pkg/stdio"
+	"github.com/containerd/containerd/runtime/v2/runc/options"
 	"github.com/containerd/containerd/runtime/v2/shim"
 	taskAPI "github.com/containerd/containerd/runtime/v2/task"
 	"github.com/containerd/typeurl"
@@ -219,7 +223,18 @@ func (s *service) Cleanup(ctx context.Context) (*taskAPI.DeleteResponse, error) 
 		logrus.WithError(err).Warn("failed to cleanup rootfs mount")
 	}
 
+	// TODO: is returning the pid necessary
+	bytes, err := ioutil.ReadFile(filepath.Join(pwd, wasmtime.InitPidFile))
+	if err != nil {
+		return nil, err
+	}
+	pid, err := strconv.Atoi(string(bytes))
+	if err != nil {
+		return nil, err
+	}
+
 	return &taskAPI.DeleteResponse{
+		Pid:        uint32(pid),
 		ExitedAt:   time.Now(),
 		ExitStatus: 128 + uint32(unix.SIGKILL),
 	}, nil
@@ -462,7 +477,7 @@ func (s *service) Kill(ctx context.Context, r *taskAPI.KillRequest) (*ptypes.Emp
 func (s *service) Pids(ctx context.Context, r *taskAPI.PidsRequest) (*taskAPI.PidsResponse, error) {
 	s.log.Info("wasm Pids")
 	return nil, errdefs.ErrNotImplemented
-	/*container, err := s.getContainer(r.ID)
+	container, err := s.getContainer(r.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -492,7 +507,7 @@ func (s *service) Pids(ctx context.Context, r *taskAPI.PidsRequest) (*taskAPI.Pi
 	}
 	return &taskAPI.PidsResponse{
 		Processes: processes,
-	}, nil*/
+	}, nil
 }
 
 // CloseIO of a process
@@ -590,15 +605,28 @@ func (s *service) Stats(ctx context.Context, r *taskAPI.StatsRequest) (*taskAPI.
 	if err != nil {
 		return nil, err
 	}
-	cg := container.Cgroup()
-	if cg == nil {
+	cgx := container.Cgroup()
+	if cgx == nil {
 		return nil, errdefs.ToGRPCf(errdefs.ErrNotFound, "cgroup does not exist")
 	}
-	stats, err := cg.Stat(cgroups.IgnoreNotExist)
-	if err != nil {
-		return nil, err
+	var statsx interface{}
+	switch cg := cgx.(type) {
+	case cgroups.Cgroup:
+		stats, err := cg.Stat(cgroups.IgnoreNotExist)
+		if err != nil {
+			return nil, err
+		}
+		statsx = stats
+	case *cgroupsv2.Manager:
+		stats, err := cg.Stat()
+		if err != nil {
+			return nil, err
+		}
+		statsx = stats
+	default:
+		return nil, errdefs.ToGRPCf(errdefs.ErrNotImplemented, "unsupported cgroup type %T", cg)
 	}
-	data, err := typeurl.MarshalAny(stats)
+	data, err := typeurl.MarshalAny(statsx)
 	if err != nil {
 		return nil, err
 	}
@@ -682,25 +710,25 @@ func shouldKillAllOnExit(bundlePath string) (bool, error) {
 }
 
 func (s *service) getContainerPids(ctx context.Context, id string) ([]uint32, error) {
-	// TODO: Return type capable of getting pids
-	return []uint32{}, nil
-	//container, err := s.getContainer(id)
-	//if err != nil {
-	//	return nil, err
-	//}
-	//p, err := container.Process("")
-	//if err != nil {
-	//	return nil, errdefs.ToGRPC(err)
-	//}
-	//ps, err := p.(*proc.Init).Runtime().Ps(ctx, id)
-	//if err != nil {
-	//	return nil, err
-	//}
-	//pids := make([]uint32, 0, len(ps))
-	//for _, pid := range ps {
-	//	pids = append(pids, uint32(pid))
-	//}
-	//return pids, nil
+	container, err := s.getContainer(id)
+	if err != nil {
+		return nil, err
+	}
+	// TODO: find all processes except just init pid
+	return []uint32{uint32(container.Pid())}, nil
+	// p, err := container.Process("")
+	// if err != nil {
+	// 	return nil, errdefs.ToGRPC(err)
+	// }
+	// ps, err := p.(*proc.Init).Runtime().Ps(ctx, id)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// pids := make([]uint32, 0, len(ps))
+	// for _, pid := range ps {
+	// 	pids = append(pids, uint32(pid))
+	// }
+	// return pids, nil
 }
 
 func (s *service) forward(ctx context.Context, publisher shim.Publisher) {
