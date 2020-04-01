@@ -309,17 +309,17 @@ func (c *Container) Delete(ctx context.Context, r *task.DeleteRequest) (proc.Pro
 
 // Exec an additional process
 func (c *Container) Exec(ctx context.Context, r *task.ExecProcessRequest) (proc.Process, error) {
-	return nil, errors.Wrap(errdefs.ErrNotImplemented, "exec not implemented")
+	return nil, errdefs.ErrNotImplemented
 }
 
 // Pause the container
 func (c *Container) Pause(ctx context.Context) error {
-	return errors.Wrap(errdefs.ErrNotImplemented, "pause not implemented")
+	return errdefs.ErrNotImplemented
 }
 
 // Resume the container
 func (c *Container) Resume(ctx context.Context) error {
-	return errors.Wrap(errdefs.ErrNotImplemented, "resume not implemented")
+	return errdefs.ErrNotImplemented
 }
 
 // ResizePty of a process
@@ -360,12 +360,12 @@ func (c *Container) CloseIO(ctx context.Context, r *task.CloseIORequest) error {
 
 // Checkpoint the container
 func (c *Container) Checkpoint(ctx context.Context, r *task.CheckpointTaskRequest) error {
-	return errors.Wrap(errdefs.ErrNotImplemented, "checkpoint not implemented")
+	return errdefs.ErrNotImplemented
 }
 
 // Update the resource information of a running container
 func (c *Container) Update(ctx context.Context, r *task.UpdateTaskRequest) error {
-	return errors.Wrap(errdefs.ErrNotImplemented, "update not implemented")
+	return errdefs.ErrNotImplemented
 }
 
 // HasPid returns true if the container owns a specific pid
