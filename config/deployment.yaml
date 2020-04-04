@@ -1,15 +1,15 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: wasm
+  name: hello-wasm
 spec:
   selector:
     matchLabels:
-      app: wasm
+      app: hello-wasm
   template:
     metadata:
       labels:
-        app: wasm
+        app: hello-wasm
     spec:
       runtimeClassName: wasm
       containers:

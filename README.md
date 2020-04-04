@@ -29,26 +29,26 @@ sleeps on a loop. We can view that information as follows:
 
 ```
 $ kubectl get pods
-NAME                    READY   STATUS    RESTARTS   AGE
-wasm-5959bbb595-4vdw5   1/1     Running   0          57s
-$ kubectl logs wasm-5959bbb595-4vdw5 -f
+NAME                          READY   STATUS    RESTARTS   AGE
+hello-wasm-6fc67bb895-67jzh   1/1     Running   0          52s
+$ kubectl logs hello-wasm-6fc67bb895-67jzh -f
 OS name: wasi
 Hardware identifier: wasm32
 
 Arguments:
-argv[0]: /run/containerd/io.containerd.runtime.v2.task/k8s.io/2f5ca10471accc20520d38050283963077df4ff380f8b634659b85e31d8fa35b/rootfs/hello-wasm
+argv[0]: /run/containerd/io.containerd.runtime.v2.task/k8s.io/4f0848f754e5585454dd135fcc74c8e0e4d8787b8c6a845c99d7d183498742fa/rootfs/hello-wasm
 
 Environment:
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-HOSTNAME=wasm-5959bbb595-4vdw5
-KUBERNETES_SERVICE_PORT_HTTPS=443
-KUBERNETES_PORT=tcp://10.96.0.1:443
+HOSTNAME=hello-wasm-6fc67bb895-67jzh
 KUBERNETES_PORT_443_TCP=tcp://10.96.0.1:443
 KUBERNETES_PORT_443_TCP_PROTO=tcp
 KUBERNETES_PORT_443_TCP_PORT=443
 KUBERNETES_PORT_443_TCP_ADDR=10.96.0.1
 KUBERNETES_SERVICE_HOST=10.96.0.1
 KUBERNETES_SERVICE_PORT=443
+KUBERNETES_SERVICE_PORT_HTTPS=443
+KUBERNETES_PORT=tcp://10.96.0.1:443
 
 Waiting 10 seconds (1)...
 Waiting 10 seconds (2)...
