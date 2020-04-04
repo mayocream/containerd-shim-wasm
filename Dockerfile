@@ -3,7 +3,8 @@ FROM debian:10.2
 RUN apt-get update && \
     apt-get install -y \
         curl \
-        make
+        make \
+        gcc
 
 # Install golang
 RUN cd /tmp && \
@@ -15,6 +16,13 @@ ENV GOROOT="/usr/local/go"
 ENV GOPATH="/root/go"
 ENV PATH="${GOPATH}/bin:${GOROOT}/bin:${PATH}"
 
+ENV HOME /root
+WORKDIR /workspace
+
+COPY go.mod go.mod
+COPY go.sum go.sum
+RUN go mod download
+
 # Install wasmer
 ARG WASMER_VERSION
 RUN cd /tmp && \
@@ -22,7 +30,3 @@ RUN cd /tmp && \
         tar -xzf wasmer-linux-amd64.tar.gz && \
         mv bin/wasmer /usr/local/bin/wasmer && \
         rm -r wasmer-linux-amd64.tar.gz bin
-
-ENV HOME /root
-
-WORKDIR /workspace

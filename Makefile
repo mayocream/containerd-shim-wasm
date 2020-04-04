@@ -8,7 +8,7 @@ DOCKER_WASM_VERSION = v0.2.0
 
 export DOCKER_BUILDKIT = 1
 
-deploy: $(BIN_DIR) docker_shim docker_wasmer create apply
+deploy: docker_shim docker_wasmer create apply
 
 reload: docker_shim
 	kubectl delete pod --all
@@ -26,27 +26,27 @@ delete:
 $(BIN_DIR):
 	mkdir -p $(BIN_DIR)
 
-plugin_buildx:
+plugin_buildx: $(BIN_DIR)
 	docker build --platform=local -o $(BIN_DIR) git://github.com/docker/buildx
 	cp -a $(BIN_DIR)/buildx $(HOME)/.docker/cli-plugins/docker-buildx
 
-plugin_wasm:
+plugin_wasm: $(BIN_DIR)
 	curl -Ls https://github.com/tonistiigi/wasm-cli-plugin/releases/download/$(DOCKER_WASM_VERSION)/docker-wasm-$(DOCKER_WASM_VERSION).$(shell uname -s | tr '[:upper:]' '[:lower:]')-amd64.tar.gz \
 		| tar -xzOf - docker-wasm > $(BIN_DIR)/docker-wasm
 	chmod +x $(BIN_DIR)/docker-wasm
 	cp -a $(BIN_DIR)/docker-wasm $(HOME)/.docker/cli-plugins/docker-wasm
 
-wasmer:
+wasmer: $(BIN_DIR)
 	cp -a `which wasmer` $(BIN_DIR)/wasmer
 
-shim:
+shim: $(BIN_DIR)
 	GOOS=linux GOARCH=amd64 go build \
 		-o $(BIN_DIR)/containerd-shim-wasm-v1 \
 		./cmd/containerd-shim-wasm-v1
 
 hello_wasm: build push
 
-run:
+run: build
 	wasmer ./$(BIN_DIR)/hello-wasm
 
 build:
@@ -72,17 +72,11 @@ docker_image:
 
 docker_shell: docker_image
 	docker run -it \
-		-v /var/run/docker.sock:/var/run/docker.sock \
-		-v $(CURDIR)/cache/go-build:/root/.cache/go-build \
-		-v $(CURDIR)/cache/go-home:/root/go \
 		-v $(CURDIR):/workspace \
 		$(BUILD_IMAGE)
 
 docker_%: docker_image
 	docker run -it \
-		-v /var/run/docker.sock:/var/run/docker.sock \
-		-v $(CURDIR)/cache/go-build:/root/.cache/go-build \
-		-v $(CURDIR)/cache/go-home:/root/go \
 		-v $(CURDIR):/workspace \
 		$(BUILD_IMAGE) \
 		make $*
