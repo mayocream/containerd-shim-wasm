@@ -8,7 +8,7 @@ DOCKER_WASM_VERSION = v0.2.0
 
 export DOCKER_BUILDKIT = 1
 
-deploy: docker_shim docker_wasmer create apply
+deploy: $(BIN_DIR) docker_shim docker_wasmer create apply
 
 reload: docker_shim
 	kubectl delete pod --all
@@ -23,7 +23,7 @@ create:
 delete:
 	kind delete cluster --name $(CLUSTER_NAME)
 
-init:
+$(BIN_DIR):
 	mkdir -p $(BIN_DIR)
 
 plugin_buildx:
