@@ -13,6 +13,6 @@ spec:
     spec:
       runtimeClassName: wasm
       containers:
-      - name: test
+      - name: hello-wasm
         image: dippynark/hello-wasm:v0.1.0
         imagePullPolicy: Always
