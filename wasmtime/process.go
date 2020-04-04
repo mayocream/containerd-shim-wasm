@@ -164,6 +164,7 @@ func (p *process) Start(ctx context.Context) (err error) {
 
 	p.mu.Lock()
 	if p.process != nil {
+		p.mu.Unlock()
 		return errors.Wrap(errdefs.ErrFailedPrecondition, "already running")
 	}
 	if err := cmd.Start(); err != nil {
@@ -180,6 +181,7 @@ func (p *process) Start(ctx context.Context) (err error) {
 	go func() {
 		waitStatus, err := p.process.Wait()
 		p.mu.Lock()
+		defer p.mu.Unlock()
 		p.exitTime = time.Now()
 		if err != nil {
 			p.exitStatus = -1
@@ -188,7 +190,6 @@ func (p *process) Start(ctx context.Context) (err error) {
 			// TODO: Make this cross platform
 			p.exitStatus = int(waitStatus.Sys().(syscall.WaitStatus))
 		}
-		p.mu.Unlock()
 
 		close(p.exited)
 
