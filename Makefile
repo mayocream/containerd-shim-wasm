@@ -1,18 +1,16 @@
-CLUSTER_NAME = test
+CLUSTER_NAME = wasm
 BIN_DIR = bin
 BUILD_IMAGE = wasm
 APP_IMAGE = dippynark/hello-wasm:v0.1.0
 
-WASMTIME_VERSION=0.60.0
+WASMER_VERSION=0.16.2
 DOCKER_WASM_VERSION = v0.2.0
 
 export DOCKER_BUILDKIT = 1
 
-all: bin hello_wasm create apply
+deploy: docker_shim docker_wasmer create apply
 
-hard_reload: shim delete create apply
-
-reload: shim
+reload: docker_shim
 	kubectl delete pod --all
 
 apply:
@@ -28,8 +26,6 @@ delete:
 init:
 	mkdir -p $(BIN_DIR)
 
-bin: init plugin_buildx plugin_wasm shim wasmer
-
 plugin_buildx:
 	docker build --platform=local -o $(BIN_DIR) git://github.com/docker/buildx
 	cp -a $(BIN_DIR)/buildx $(HOME)/.docker/cli-plugins/docker-buildx
@@ -41,10 +37,7 @@ plugin_wasm:
 	cp -a $(BIN_DIR)/docker-wasm $(HOME)/.docker/cli-plugins/docker-wasm
 
 wasmer:
-	docker run -it \
-		-v $(CURDIR)/$(BIN_DIR):/out \
-		$(BUILD_IMAGE) \
-		cp -a /usr/local/bin/wasmer /out/wasmer
+	cp -a `which wasmer` $(BIN_DIR)/wasmer
 
 shim:
 	GOOS=linux GOARCH=amd64 go build \
@@ -73,7 +66,9 @@ push:
 		--push .
 
 docker_image:
-	docker build -t $(BUILD_IMAGE) $(CURDIR)
+	docker build -t $(BUILD_IMAGE) \
+		--build-arg WASMER_VERSION=$(WASMER_VERSION) \
+		$(CURDIR)
 
 docker_shell: docker_image
 	docker run -it \
