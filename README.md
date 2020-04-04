@@ -24,6 +24,9 @@ following:
 
 ### Logs
 
+All the module does is print some system information, arguments and environment variables and then
+sleeps on a loop. We can view that information as follows:
+
 ```
 $ kubectl get pods
 NAME                    READY   STATUS    RESTARTS   AGE
