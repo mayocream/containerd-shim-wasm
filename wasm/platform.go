@@ -16,7 +16,7 @@
    limitations under the License.
 */
 
-package wasmtime
+package wasm
 
 import (
 	"context"

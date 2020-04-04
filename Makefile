@@ -28,7 +28,7 @@ delete:
 init:
 	mkdir -p $(BIN_DIR)
 
-bin: init plugin_buildx plugin_wasm shim wasmtime
+bin: init plugin_buildx plugin_wasm shim wasmer
 
 plugin_buildx:
 	docker build --platform=local -o $(BIN_DIR) git://github.com/docker/buildx
@@ -40,12 +40,11 @@ plugin_wasm:
 	chmod +x $(BIN_DIR)/docker-wasm
 	cp -a $(BIN_DIR)/docker-wasm $(HOME)/.docker/cli-plugins/docker-wasm
 
-.PHONY: wasmtime
-wasmtime:
+wasmer:
 	docker run -it \
 		-v $(CURDIR)/$(BIN_DIR):/out \
 		$(BUILD_IMAGE) \
-		cp -a /usr/local/bin/wasmtime /out/wasmtime
+		cp -a /usr/local/bin/wasmer /out/wasmer
 
 shim:
 	GOOS=linux GOARCH=amd64 go build \
@@ -55,7 +54,7 @@ shim:
 hello_wasm: build push
 
 run:
-	wasmtime ./$(BIN_DIR)/hello-wasm
+	wasmer ./$(BIN_DIR)/hello-wasm
 
 build:
 	# install plugin

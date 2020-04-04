@@ -7,5 +7,5 @@ nodes:
     containerPath: /etc/containerd/config.toml
   - hostPath: bin/containerd-shim-wasm-v1
     containerPath: /usr/local/bin/containerd-shim-wasm-v1
-  - hostPath: bin/wasmtime
-    containerPath: /usr/local/bin/wasmtime
+  - hostPath: bin/wasmer
+    containerPath: /usr/local/bin/wasmer

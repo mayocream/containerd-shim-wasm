@@ -42,7 +42,7 @@ import (
 	"github.com/containerd/containerd/runtime/v2/shim"
 	taskAPI "github.com/containerd/containerd/runtime/v2/task"
 	"github.com/containerd/typeurl"
-	"github.com/dmcgowan/containerd-wasm/wasmtime"
+	"github.com/dmcgowan/containerd-wasm/wasm"
 	ptypes "github.com/gogo/protobuf/types"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -68,7 +68,7 @@ type spec struct {
 
 // New returns a new shim service that can be used via GRPC
 func New(ctx context.Context, id string, publisher shim.Publisher, cancel func()) (shim.Shim, error) {
-	ep, err := wasmtime.NewOOMEpoller(publisher)
+	ep, err := wasm.NewOOMEpoller(publisher)
 	if err != nil {
 		return nil, err
 	}
@@ -77,10 +77,10 @@ func New(ctx context.Context, id string, publisher shim.Publisher, cancel func()
 		id:         id,
 		context:    ctx,
 		events:     make(chan interface{}, 128),
-		ec:         make(chan wasmtime.Exit),
+		ec:         make(chan wasm.Exit),
 		ep:         ep,
 		cancel:     cancel,
-		containers: make(map[string]*wasmtime.Container),
+		containers: make(map[string]*wasm.Container),
 		log:        log.GetLogger(context.TODO()),
 	}
 	go s.processExits()
@@ -100,14 +100,14 @@ type service struct {
 	context  context.Context
 	events   chan interface{}
 	platform stdio.Platform
-	ec       chan wasmtime.Exit
-	ep       *wasmtime.Epoller
+	ec       chan wasm.Exit
+	ep       *wasm.Epoller
 	log      *logrus.Entry
 
 	// id only used in cleanup case
 	id string
 
-	containers map[string]*wasmtime.Container
+	containers map[string]*wasm.Container
 
 	cancel func()
 }
@@ -224,7 +224,7 @@ func (s *service) Cleanup(ctx context.Context) (*taskAPI.DeleteResponse, error) 
 	}
 
 	// TODO: is returning the pid necessary
-	bytes, err := ioutil.ReadFile(filepath.Join(pwd, wasmtime.InitPidFile))
+	bytes, err := ioutil.ReadFile(filepath.Join(pwd, wasm.InitPidFile))
 	if err != nil {
 		return nil, err
 	}
@@ -240,13 +240,13 @@ func (s *service) Cleanup(ctx context.Context) (*taskAPI.DeleteResponse, error) 
 	}, nil
 }
 
-// Create a new initial process and container with wasmtime
+// Create a new initial process and container with wasm runtime
 func (s *service) Create(ctx context.Context, r *taskAPI.CreateTaskRequest) (_ *taskAPI.CreateTaskResponse, err error) {
 	s.log.Info("wasm Create")
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	container, err := wasmtime.NewContainer(ctx, s.platform, r, s.ec)
+	container, err := wasm.NewContainer(ctx, s.platform, r, s.ec)
 	if err != nil {
 		return nil, err
 	}
@@ -652,7 +652,7 @@ func (s *service) processExits() {
 	}
 }
 
-func (s *service) checkProcesses(e wasmtime.Exit) {
+func (s *service) checkProcesses(e wasm.Exit) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -736,7 +736,7 @@ func (s *service) forward(ctx context.Context, publisher shim.Publisher) {
 	ctx = namespaces.WithNamespace(context.Background(), ns)
 	for e := range s.events {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		err := publisher.Publish(ctx, wasmtime.GetTopic(e), e)
+		err := publisher.Publish(ctx, wasm.GetTopic(e), e)
 		cancel()
 		if err != nil {
 			logrus.WithError(err).Error("post event")
@@ -745,7 +745,7 @@ func (s *service) forward(ctx context.Context, publisher shim.Publisher) {
 	publisher.Close()
 }
 
-func (s *service) getContainer(id string) (*wasmtime.Container, error) {
+func (s *service) getContainer(id string) (*wasm.Container, error) {
 	s.mu.Lock()
 	container := s.containers[id]
 	s.mu.Unlock()
@@ -761,7 +761,7 @@ func (s *service) initPlatform() error {
 	if s.platform != nil {
 		return nil
 	}
-	p, err := wasmtime.NewPlatform()
+	p, err := wasm.NewPlatform()
 	if err != nil {
 		return err
 	}

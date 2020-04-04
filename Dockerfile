@@ -18,14 +18,13 @@ ENV GOROOT="/usr/local/go"
 ENV GOPATH="/root/go"
 ENV PATH="${GOPATH}/bin:${GOROOT}/bin:${PATH}"
 
-# Install wasmtime
-ENV WASMTIME_VERSION 0.60.0
+# Install wasmer
+ENV WASMER_VERSION 0.16.2
 RUN cd /tmp && \
-        curl -LO https://github.com/bytecodealliance/wasmtime/releases/download/cranelift-v${WASMTIME_VERSION}/wasmtime-cranelift-v${WASMTIME_VERSION}-x86_64-linux.tar.xz && \
-        tar -xf wasmtime-cranelift-v${WASMTIME_VERSION}-x86_64-linux.tar.xz && \
-        mv wasmtime-cranelift-v${WASMTIME_VERSION}-x86_64-linux/wasmtime /usr/local/bin/wasmtime && \
-        rm wasmtime-cranelift-v${WASMTIME_VERSION}-x86_64-linux.tar.xz && \
-        rm -Rf wasmtime-cranelift-v${WASMTIME_VERSION}-x86_64-linux
+        curl -LO https://github.com/wasmerio/wasmer/releases/download/${WASMER_VERSION}/wasmer-linux-amd64.tar.gz && \
+        tar -xzf wasmer-linux-amd64.tar.gz && \
+        mv bin/wasmer /usr/local/bin/wasmer && \
+        rm -r wasmer-linux-amd64.tar.gz bin
 
 ENV HOME /root
 

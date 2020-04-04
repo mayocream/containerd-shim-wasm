@@ -1,4 +1,4 @@
-package wasmtime
+package wasm
 
 import (
 	"context"
@@ -17,6 +17,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	wasmRuntime = "wasmer"
+)
+
 type process struct {
 	mu sync.Mutex
 
@@ -29,8 +33,9 @@ type process struct {
 	exited     chan struct{}
 	ec         chan<- Exit
 
-	env  []string
-	args []string
+	rootfs string
+	env    []string
+	args   []string
 
 	isSandbox bool
 
@@ -97,24 +102,23 @@ func (p *process) Resize(ws console.WinSize) error {
 }
 
 func (p *process) Start(ctx context.Context) (err error) {
-	var args []string
-	/*
-		TODO: deal with envs and args
-		for _, rm := range p.remaps {
-			args = append(args, "--mapdir="+rm)
+
+	var cmd *exec.Cmd
+	// If this is a sandbox, run a normal process
+	if p.isSandbox {
+		cmd = exec.Command(p.args[0])
+		if len(p.args) > 1 {
+			cmd = exec.Command(p.args[0], p.args[1:]...)
 		}
+	} else {
+		var args []string
+		// remap root
+		args = append(args, "--mapdir=/:"+p.rootfs)
 		for _, env := range p.env {
 			args = append(args, "--env="+env)
 		}
-	*/
-	args = append(args, p.args...)
-	cmd := exec.Command("wasmtime", p.args...)
-	// If this is a sandbox, run a normal process
-	if p.isSandbox {
-		cmd = exec.Command(args[0])
-		if len(args) > 1 {
-			cmd = exec.Command(args[0], args[1:]...)
-		}
+		args = append(args, p.args...)
+		cmd = exec.Command(wasmRuntime, args...)
 	}
 
 	var in io.Closer
@@ -181,7 +185,6 @@ func (p *process) Start(ctx context.Context) (err error) {
 	go func() {
 		waitStatus, err := p.process.Wait()
 		p.mu.Lock()
-		defer p.mu.Unlock()
 		p.exitTime = time.Now()
 		if err != nil {
 			p.exitStatus = -1
@@ -190,6 +193,7 @@ func (p *process) Start(ctx context.Context) (err error) {
 			// TODO: Make this cross platform
 			p.exitStatus = int(waitStatus.Sys().(syscall.WaitStatus))
 		}
+		p.mu.Unlock()
 
 		close(p.exited)
 

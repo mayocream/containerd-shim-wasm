@@ -16,7 +16,7 @@
    limitations under the License.
 */
 
-package wasmtime
+package wasm
 
 import (
 	"context"
@@ -42,8 +42,8 @@ import (
 )
 
 const (
-	rootfs      = "rootfs"
-	InitPidFile = "init.pid"
+	rootfsDirName = "rootfs"
+	InitPidFile   = "init.pid"
 )
 
 // Container for operating on a runc container and its processes
@@ -95,7 +95,7 @@ func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTa
 
 	rootfs := ""
 	if len(mounts) > 0 {
-		rootfs = filepath.Join(r.Bundle, "rootfs")
+		rootfs = filepath.Join(r.Bundle, rootfsDirName)
 		if err := os.Mkdir(rootfs, 0700); err != nil && !os.IsExist(err) {
 			return nil, err
 		}
@@ -146,6 +146,7 @@ func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTa
 		},
 		exited:    make(chan struct{}),
 		ec:        ec,
+		rootfs:    rootfs,
 		env:       spec.Process.Env,
 		args:      spec.Process.Args,
 		isSandbox: isSandbox(&spec),
