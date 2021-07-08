@@ -46,6 +46,11 @@ shim: $(BIN_DIR)
 
 hello_wasm: build push
 
+hello_wasm2:
+	docker build -t hello-wasm2:v1 -f hello-wasm2/Dockerfile hello-wasm2/
+	docker tag hello-wasm2:v1 harbor.oneitfarm.com/bifrost/hello-wasm2:v1
+	docker push harbor.oneitfarm.com/bifrost/hello-wasm2:v1
+
 run: build
 	wasmer ./$(BIN_DIR)/hello-wasm
 

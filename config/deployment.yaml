@@ -14,5 +14,5 @@ spec:
       runtimeClassName: wasm
       containers:
       - name: hello-wasm
-        image: dippynark/hello-wasm:v0.1.0
+        image: harbor.oneitfarm.com/bifrost/hello-wasm2:v1
         imagePullPolicy: Always
